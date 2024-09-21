@@ -159,7 +159,6 @@ public void onUpdateReceived(Update update) {
                         if (isAdded) {
                             sendMessage(chatId, Constants.ANSWER_RECEIVED + questionNumber);
 
-                            // Track user's response
                             USERS_RESPONSES.putIfAbsent(chatId, new HashSet<>());
                             USERS_RESPONSES.get(chatId).add(question);
                         } else {
@@ -179,7 +178,6 @@ public void onUpdateReceived(Update update) {
             if (allResponsesValid) {
                 sendMessage(chatId, Constants.END_SURVEY);
                 if (allUsersAnsweredAllQuestions()) {
-                    // Cancel the timer since all users have responded
                     if (resultsTimer != null && !resultsTimer.isDone()) {
                         resultsTimer.cancel(false);
                     }
@@ -193,32 +191,25 @@ public void onUpdateReceived(Update update) {
         if (currentSurvey == null) {
             return false;
         }
-
         int totalQuestions = currentSurvey.getQUESTIONS().size();
-
-        // Verify each user has answered all questions
         for (Long userId : USERS) {
             Set<String> answeredQuestions = USERS_RESPONSES.get(userId);
             if (answeredQuestions == null || answeredQuestions.size() < totalQuestions) {
-                return false; // User has not answered all questions
+                return false;
             }
         }
-
-        return true; // All users answered all questions
+        return true;
     }
 
     private void sendSurvey() {
         for (String question : currentSurvey.getQUESTIONS()) {
             StringBuilder message = new StringBuilder(question).append("\n");
             List<String> options = currentSurvey.getPossibleAnswersForQuestion(question);
-
             for (int i = 0; i < options.size(); i++) {
                 message.append(i + 1).append(". ").append(options.get(i)).append("\n");
             }
             sendToAllMembers(message.toString());
         }
-
-        // Schedule sending results after 5 minutes if not all users respond
         resultsTimer = SCHEDULER.schedule(this::sendSurveyResults, 5, TimeUnit.MINUTES);
     }
 
@@ -232,7 +223,7 @@ public void onUpdateReceived(Update update) {
     private void resetSurveyState() {
         currentSurvey = null;
         currentCreator = null;
-        USERS_RESPONSES.clear(); // Clear response tracking
+        USERS_RESPONSES.clear();
     }
 
     public void sendMessage(long chatId, String text) {
