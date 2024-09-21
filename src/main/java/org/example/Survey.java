@@ -18,8 +18,16 @@ public class Survey {
         return QUESTIONS;
     }
 
-    public List<String> getOptionsForQuestion(String question) {
+    public List<String> getPossibleAnswersForQuestion(String question) {
         return POSSIBLE_ANSWERS.get(question);
+    }
+
+    public int getUsersResponses() {
+        return USERS_RESPONSES.size();
+    }
+
+    public long getCHAT_IDS() {
+        return CHAT_IDS;
     }
 
     public boolean addResponse(long userId, String question, String response) {
@@ -33,7 +41,6 @@ public class Survey {
             USERS_RESPONSES.get(userId).put(question, response.toLowerCase());
             return true;
         }
-
         return false;
     }
 
@@ -45,7 +52,6 @@ public class Survey {
                 results.get(question).put(option, 0);
             }
         }
-
         for (Map<String, String> responses : USERS_RESPONSES.values()) {
             for (Map.Entry<String, String> entry : responses.entrySet()) {
                 String question = entry.getKey();
@@ -53,15 +59,6 @@ public class Survey {
                 results.get(question).put(response, results.get(question).get(response) + 1);
             }
         }
-
         return results;
-    }
-
-    public int getTotalVotes() {
-        return USERS_RESPONSES.size();
-    }
-
-    public long getCHAT_IDS() {
-        return CHAT_IDS;
     }
 }

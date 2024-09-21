@@ -13,6 +13,7 @@ public class ApiBot extends TelegramLongPollingBot {
     private final Set<Long> USERS;
     private final ScheduledExecutorService SCHEDULER;
     private boolean isCreatingSurvey = false;
+    private Long currentCreator;
 
     @SuppressWarnings("deprecation")
     public ApiBot(){
@@ -20,55 +21,71 @@ public class ApiBot extends TelegramLongPollingBot {
         SCHEDULER = Executors.newScheduledThreadPool(1);
     }
 @Override
-    public void onUpdateReceived(Update update) {
-        if (update.hasMessage() && update.getMessage().hasText()) {
-            String messageText = update.getMessage().getText().trim().toLowerCase();
-            long chatId = update.getMessage().getChatId();
-
-            if (messageText.equals(Constants.START[0]) || (messageText.equalsIgnoreCase(Constants.START[1]))) {
-                sendWelcomeMessage(chatId);
-                handleJoin(update);
-            } else if (messageText.equals(Constants.CREATE_SURVEY)) {
-                startSurveyCreation(chatId);
-            } else if (isCreatingSurvey) {
-                processSurveyCreationStep(chatId, messageText);
-            } else if (currentSurvey != null) {
-                processSurveyResponse(chatId, messageText);
+public void onUpdateReceived(Update update) {
+    if (update.hasMessage() && update.getMessage().hasText()) {
+        String messageText = update.getMessage().getText().trim().toLowerCase();
+        long chatId = update.getMessage().getChatId();
+        if (messageText.equals(Constants.START[0]) || (messageText.equalsIgnoreCase(Constants.START[1]))) {
+            sendWelcomeMessage(chatId);
+            handleJoin(update);
+        } else if (messageText.equals(Constants.CREATE_SURVEY)) {
+            if (USERS.size() < Constants.MIN_USERS) {
+                sendMessage(chatId, Constants.ERROR_1);
+            } else if (currentCreator != null) {
+                sendMessage(chatId, Constants.ERROR_2);
+            } else {
+                currentCreator = chatId;
+                createSurveyInstructions(chatId);
             }
+        } else if (isCreatingSurvey && chatId == currentCreator) {
+            checkSurveyInfo(chatId, messageText);
+        } else if (currentSurvey != null) {
+            processSurveyResponse(chatId, messageText);
         }
     }
+}
     private void sendWelcomeMessage(long chatId) {
-        sendMessage(chatId, "Welcome to the community!");
+        sendMessage(chatId, Constants.WELCOME+"\nSend '"+Constants.CREATE_SURVEY+"' for creat a survey");
     }
     private void handleJoin(Update update) {
         long chatId = update.getMessage().getChatId();
         if (!USERS.contains(chatId)) {
             USERS.add(chatId);
-            String welcomeMessage = "A new member has joined! Community size: " + USERS.size();
+            String welcomeMessage = Constants.USERS_AMOUNT + USERS.size();
             sendToAllMembers(welcomeMessage);
         }
     }
 
-    private void startSurveyCreation(long chatId) {
+    private void createSurveyInstructions(long chatId) {
         isCreatingSurvey = true;
-        sendMessage(chatId, "Please enter the survey questions and options in the format: q1: a1,a2,a3;q2: a1,a2,a3;");
+        sendMessage(chatId, Constants.SURVEY_FORMAT +"\n"+ Constants.SURVEY_REQUIREMENTS);
     }
 
-    private void processSurveyCreationStep(long chatId, String messageText) {
+    private void checkSurveyInfo(long chatId, String messageText) {
         if (messageText.matches(".*:.*(,.*)*;.*")) {
-            processCreateSurveyCommand(chatId, messageText);
+            String[] questionsOptionsArray = messageText.split(";");
+            if (questionsOptionsArray.length > 3) {
+                sendMessage(chatId, Constants.ERROR_3);
+                return;
+            }
+            for (String questionOption : questionsOptionsArray) {
+                String[] questionOptionParts = questionOption.split(":");
+                if (questionOptionParts.length == 2) {
+                    List<String> options = Arrays.asList(questionOptionParts[1].split(","));
+                    if (options.size() < 2 || options.size() > 4) {
+                        sendMessage(chatId, Constants.ERROR_4);
+                        return;
+                    }
+                }
+            }
+            analyzeSurveyInfo(chatId, messageText);
             isCreatingSurvey = false;
         } else {
-            sendMessage(chatId, "Invalid format. Please use the format: q1: a1,a2,a3;q2: a1,a2,a3;");
+            sendMessage(chatId, Constants.INVALID_INPUT + ", " +Constants.SURVEY_FORMAT);
         }
     }
 
-    private void processCreateSurveyCommand(long chatId, String messageText) {
-        if (USERS.isEmpty()) {
-            sendMessage(chatId, Constants.ERROR_1);
-            return;
-        }
-
+    private void analyzeSurveyInfo(long chatId, String messageText) {
         String[] questionsOptionsArray = messageText.split(";");
         List<String> questions = new ArrayList<>();
         Map<String, List<String>> optionsPerQuestion = new HashMap<>();
@@ -86,26 +103,25 @@ public class ApiBot extends TelegramLongPollingBot {
     }
 
     private void createSurvey(long creatorChatId, List<String> questions, Map<String, List<String>> optionsPerQuestion) {
-        Survey survey = new Survey(questions, optionsPerQuestion, creatorChatId);
-        this.currentSurvey = survey;
-        sendSurveyOptions(creatorChatId);
+        this.currentSurvey = new Survey(questions, optionsPerQuestion, creatorChatId);
+        surveyTimeOptions(creatorChatId);
     }
 
-    private void sendSurveyOptions(long creatorChatId) {
-        String surveyOptions = "\nWhen do you want to send the survey?\n1. " + Constants.IMMEDIATELY +
-                "\n2. In a " + Constants.DELAY + " (write how many minutes to wait)";
+    private void surveyTimeOptions(long creatorChatId) {
+        String surveyOptions = Constants.ASK_TIMING + "\n1. " + Constants.IMMEDIATELY +
+                "\n2. In a " + Constants.DELAY + Constants.ASK_MINUTES;
         sendMessage(creatorChatId, surveyOptions);
     }
 
     private void processSurveyResponse(long chatId, String messageText) {
-        if (messageText.equals(Constants.IMMEDIATELY)) {
-            sendSurveyToAllMembers();
+        if (messageText.equalsIgnoreCase(Constants.IMMEDIATELY)) {
+            sendSurvey();
         } else if (messageText.startsWith(Constants.DELAY)) {
             try {
                 int delayMinutes = Integer.parseInt(messageText.split(" ")[1]);
-                SCHEDULER.schedule(this::sendSurveyToAllMembers, delayMinutes, TimeUnit.MINUTES);
+                SCHEDULER.schedule(this::sendSurvey, delayMinutes, TimeUnit.MINUTES);
             } catch (NumberFormatException e) {
-                sendMessage(chatId, Constants.INVALID_INPUT + ", please enter the amount of minutes.");
+                sendMessage(chatId, Constants.INVALID_INPUT + Constants.ASK_MINUTES);
             }
         } else {
             String[] responsePairs = messageText.split(";");
@@ -120,16 +136,16 @@ public class ApiBot extends TelegramLongPollingBot {
                         int answerNumber = Integer.parseInt(responseParts[1].trim());
 
                         if (questionNumber <= 0 || questionNumber > currentSurvey.getQUESTIONS().size()) {
-                            sendMessage(chatId, "Invalid question number: " + questionNumber);
+                            sendMessage(chatId, Constants.ERROR_5 + questionNumber);
                             allResponsesValid = false;
                             continue;
                         }
 
                         String question = currentSurvey.getQUESTIONS().get(questionNumber - 1);
-                        List<String> options = currentSurvey.getOptionsForQuestion(question);
+                        List<String> options = currentSurvey.getPossibleAnswersForQuestion(question);
 
                         if (answerNumber <= 0 || answerNumber > options.size()) {
-                            sendMessage(chatId, "Invalid answer number for question " + questionNumber + ": " + answerNumber);
+                            sendMessage(chatId, Constants.ERROR_6 + questionNumber);
                             allResponsesValid = false;
                             continue;
                         }
@@ -138,42 +154,45 @@ public class ApiBot extends TelegramLongPollingBot {
                         boolean isAdded = currentSurvey.addResponse(chatId, question, response);
 
                         if (isAdded) {
-                            sendMessage(chatId, "Response for question " + questionNumber + " has been received.");
+                            sendMessage(chatId, Constants.ANSWER_RECEIVED + questionNumber);
                         } else {
-                            sendMessage(chatId, "Invalid answer or you have already responded to question " + questionNumber + ".");
+                            sendMessage(chatId,  Constants.ERROR_7 + questionNumber);
                             allResponsesValid = false;
                         }
                     } catch (NumberFormatException e) {
-                        sendMessage(chatId, "Invalid format. Use the format: question_number: answer_number;");
+                        sendMessage(chatId, Constants.INVALID_INPUT + Constants.ANSWER_FORMAT);
                         allResponsesValid = false;
                     }
                 } else {
-                    sendMessage(chatId, "Invalid format. Use the format: question_number: answer_number;");
+                    sendMessage(chatId, Constants.INVALID_INPUT + Constants.ANSWER_FORMAT);
                     allResponsesValid = false;
                 }
             }
 
             if (allResponsesValid) {
-                sendMessage(chatId, "All your responses have been successfully received.");
-                if (currentSurvey.getTotalVotes() == USERS.size()) {
-                    new SurveyResults(currentSurvey).analyzeAndDisplayResults(currentSurvey.getCHAT_IDS(), this);
+                sendMessage(chatId, Constants.END_SURVEY);
+                if (currentSurvey.getUsersResponses() == USERS.size()) {
+                    new SurveyResults(currentSurvey).analyzeSurveyResults(currentSurvey.getCHAT_IDS(), this);
                     currentSurvey = null;
                 }
             }
         }
     }
 
-    private void sendSurveyToAllMembers() {
+    private void sendSurvey() {
         for (String question : currentSurvey.getQUESTIONS()) {
             StringBuilder message = new StringBuilder(question).append("\n");
-            List<String> options = currentSurvey.getOptionsForQuestion(question);
-
+            List<String> options = currentSurvey.getPossibleAnswersForQuestion(question);
             for (int i = 0; i < options.size(); i++) {
                 message.append(i + 1).append(". ").append(options.get(i)).append("\n");
             }
             sendToAllMembers(message.toString());
         }
-        SCHEDULER.schedule(() -> new SurveyResults(currentSurvey).analyzeAndDisplayResults(currentSurvey.getCHAT_IDS(), this), 5, TimeUnit.MINUTES);
+        SCHEDULER.schedule(() -> {
+            new SurveyResults(currentSurvey).analyzeSurveyResults(currentSurvey.getCHAT_IDS(), this);
+            currentSurvey = null;
+            currentCreator = null;
+        }, 5, TimeUnit.MINUTES);
     }
 
     public void sendMessage(long chatId, String text) {

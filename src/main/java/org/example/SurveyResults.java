@@ -9,26 +9,20 @@ public class SurveyResults {
         this.SURVEY = survey;
     }
 
-    public void analyzeAndDisplayResults(long chatId, ApiBot bot) {
+    public void analyzeSurveyResults(long chatId, ApiBot bot) {
         Map<String, Map<String, Integer>> results = SURVEY.getResults();
-
-        StringBuilder resultMessage = new StringBuilder("תוצאות הסקר:\n");
-
+        StringBuilder resultMessage = new StringBuilder("\nSurvey results: ");
         for (String question : results.keySet()) {
-            resultMessage.append("\n").append(question).append("\n");
+            resultMessage.append("\n").append(question);
             Map<String, Integer> questionResults = results.get(question);
-
-            // מיון התוצאות מהתשובה עם הכי הרבה הצבעות ועד להכי פחות
-            questionResults.entrySet()
-                    .stream()
+            questionResults.entrySet().stream()
                     .sorted((entry1, entry2) -> entry2.getValue().compareTo(entry1.getValue()))
                     .forEach(entry -> {
                         String option = entry.getKey();
                         int votes = entry.getValue();
-                        resultMessage.append(option).append(": ").append(votes).append(" הצבעות\n");
+                        resultMessage.append("\n").append(option).append(": ").append(votes).append(" votes");
                     });
         }
-
         bot.sendMessage(chatId, resultMessage.toString());
     }
 }
