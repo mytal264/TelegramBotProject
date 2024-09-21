@@ -13,7 +13,7 @@ public class Constants {
         public static final String ASK_TIMING = "When do you want to send the survey?";
         public static final String IMMEDIATELY = "Immediately";
         public static final String DELAY = "delay";
-        public static final String ASK_MINUTES = ", write how many minutes to wait.";
+        public static final String ASK_MINUTES = ", write how many minutes to wait. (example: delay ?)";
         public static final String SURVEY_FORMAT = "Please enter the survey questions and options in the format: q1:a1,a2,a3; q2:a1,a2,a3;";
         public static final String SURVEY_REQUIREMENTS = "(1-3 questions, for each question 2-4 possible answers)";
         public static final String ANSWER_FORMAT = ", Use the format: question_number: answer_number;";

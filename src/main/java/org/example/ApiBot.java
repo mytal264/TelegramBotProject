@@ -12,12 +12,15 @@ public class ApiBot extends TelegramLongPollingBot {
     private Survey currentSurvey;
     private final Set<Long> USERS;
     private final ScheduledExecutorService SCHEDULER;
+    private ScheduledFuture<?> resultsTimer;
     private boolean isCreatingSurvey = false;
     private Long currentCreator;
+    private final Map<Long, Set<String>> USERS_RESPONSES;
 
     @SuppressWarnings("deprecation")
     public ApiBot(){
         USERS = new HashSet<>();
+        USERS_RESPONSES = new HashMap<>();
         SCHEDULER = Executors.newScheduledThreadPool(1);
     }
 @Override
@@ -155,8 +158,12 @@ public void onUpdateReceived(Update update) {
 
                         if (isAdded) {
                             sendMessage(chatId, Constants.ANSWER_RECEIVED + questionNumber);
+
+                            // Track user's response
+                            USERS_RESPONSES.putIfAbsent(chatId, new HashSet<>());
+                            USERS_RESPONSES.get(chatId).add(question);
                         } else {
-                            sendMessage(chatId,  Constants.ERROR_7 + questionNumber);
+                            sendMessage(chatId, Constants.ERROR_7 + questionNumber);
                             allResponsesValid = false;
                         }
                     } catch (NumberFormatException e) {
@@ -171,28 +178,61 @@ public void onUpdateReceived(Update update) {
 
             if (allResponsesValid) {
                 sendMessage(chatId, Constants.END_SURVEY);
-                if (currentSurvey.getUsersResponses() == USERS.size()) {
-                    new SurveyResults(currentSurvey).analyzeSurveyResults(currentSurvey.getCHAT_IDS(), this);
-                    currentSurvey = null;
+                if (allUsersAnsweredAllQuestions()) {
+                    // Cancel the timer since all users have responded
+                    if (resultsTimer != null && !resultsTimer.isDone()) {
+                        resultsTimer.cancel(false);
+                    }
+                    sendSurveyResults();
                 }
             }
         }
+    }
+
+    private boolean allUsersAnsweredAllQuestions() {
+        if (currentSurvey == null) {
+            return false;
+        }
+
+        int totalQuestions = currentSurvey.getQUESTIONS().size();
+
+        // Verify each user has answered all questions
+        for (Long userId : USERS) {
+            Set<String> answeredQuestions = USERS_RESPONSES.get(userId);
+            if (answeredQuestions == null || answeredQuestions.size() < totalQuestions) {
+                return false; // User has not answered all questions
+            }
+        }
+
+        return true; // All users answered all questions
     }
 
     private void sendSurvey() {
         for (String question : currentSurvey.getQUESTIONS()) {
             StringBuilder message = new StringBuilder(question).append("\n");
             List<String> options = currentSurvey.getPossibleAnswersForQuestion(question);
+
             for (int i = 0; i < options.size(); i++) {
                 message.append(i + 1).append(". ").append(options.get(i)).append("\n");
             }
             sendToAllMembers(message.toString());
         }
-        SCHEDULER.schedule(() -> {
+
+        // Schedule sending results after 5 minutes if not all users respond
+        resultsTimer = SCHEDULER.schedule(this::sendSurveyResults, 5, TimeUnit.MINUTES);
+    }
+
+    private void sendSurveyResults() {
+        if (currentSurvey != null) {
             new SurveyResults(currentSurvey).analyzeSurveyResults(currentSurvey.getCHAT_IDS(), this);
-            currentSurvey = null;
-            currentCreator = null;
-        }, 5, TimeUnit.MINUTES);
+            resetSurveyState();
+        }
+    }
+
+    private void resetSurveyState() {
+        currentSurvey = null;
+        currentCreator = null;
+        USERS_RESPONSES.clear(); // Clear response tracking
     }
 
     public void sendMessage(long chatId, String text) {

@@ -22,10 +22,6 @@ public class Survey {
         return POSSIBLE_ANSWERS.get(question);
     }
 
-    public int getUsersResponses() {
-        return USERS_RESPONSES.size();
-    }
-
     public long getCHAT_IDS() {
         return CHAT_IDS;
     }
